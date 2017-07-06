@@ -5,13 +5,19 @@ import (
 	"time"
 )
 
+// Integration tests against Elasticsearch 2.3.x and 5.2.x
+// Tests use the 'shakespeare' index example
+// https://www.elastic.co/guide/en/kibana/current/tutorial-load-dataset.html
+// ...This was done for rapid prototyping and validation;
+// TODO: improve reproducibility of testing for contributors
+
 var (
 	es5port = "9201"
 	es2port = "9200"
+	ports   = []string{es5port, es2port}
 )
 
 func TestIntegrationScrollers(t *testing.T) {
-	ports := []string{es5port, es2port}
 	for _, p := range ports {
 		t.Logf("testing scroll for %s", p)
 		testIntegrationEsScroller(t, p)
@@ -24,7 +30,7 @@ func testIntegrationEsScroller(t *testing.T, port string) {
 	ss := ScrollSettings{
 		Hosts:    []string{"127.0.0.1"},
 		Index:    "shakespeare",
-		Port:     es5port,
+		Port:     port,
 		Timeout:  "1m",
 		Pagesize: int64(10),
 	}
@@ -53,7 +59,7 @@ func testIntegrationEsScroller(t *testing.T, port string) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Now scroll
-	docs2, err := e5s.Scroll()
+	docs2, err := e5s.Scroll(e5s.ScrollID())
 	if err != nil {
 		t.Errorf("error scrolling: %v", err)
 	}
@@ -63,15 +69,22 @@ func testIntegrationEsScroller(t *testing.T, port string) {
 	//t.Logf("docs2: %#v", docs2)
 }
 
+func TestIntegrationElasticScrollerCleanups(t *testing.T) {
+	for _, p := range ports {
+		t.Logf("testing port %s", p)
+		testIntegrationEsScrollerCleanup(t, p)
+	}
+}
+
 // This test uses the 'shakespeare' index example
 // https://www.elastic.co/guide/en/kibana/current/tutorial-load-dataset.html
-func TestIntegrationEsScrollerCleanup(t *testing.T) {
+func testIntegrationEsScrollerCleanup(t *testing.T, port string) {
 	ss := ScrollSettings{
 		Hosts:    []string{"127.0.0.1"},
 		Index:    "shakespeare",
-		Port:     es5port,
+		Port:     port,
 		Timeout:  "1m",
-		Pagesize: int64(10),
+		Pagesize: int64(20),
 	}
 
 	e5s := NewElastic5Scroll(ss)
@@ -102,7 +115,7 @@ func TestIntegrationEsScrollerCleanup(t *testing.T) {
 
 	// Now scroll
 	for i := 0; i < 10; i++ {
-		docs2, err := e5s.Scroll()
+		docs2, err := e5s.Scroll(e5s.ScrollID())
 		if err != nil {
 			t.Errorf("error scrolling[%d]: %v", i, err)
 		}

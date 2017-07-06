@@ -2,22 +2,20 @@ package eskit
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	elastigo "github.com/mattbaird/elastigo/lib"
 )
 
-//var _ Scroller = (*Elastic5Scroll)(nil)
+var _ Scroller = (*Elastic5Scroll)(nil)
 
 type Scroller interface {
-	// Open the scroll or configure list of files to read
-	Open(
-		map[string]interface{}, // Data mapping[query, filenames]
-	) ([]*Doc, error) // CTF: Stdin?
+	// Open the Scroller to initialize any necessary state
+	Open(map[string]interface{}) ([]*Doc, error) // CTF: Stdin?
 
-	Scroll(
-		string, // scroll ID, filename
-	) ([]*Doc, error)
+	// Scroll processes the identified resource and returns documents
+	Scroll(string) ([]*Doc, error)
 }
 
 type ScrollSettings struct {
@@ -38,7 +36,7 @@ type Elastic5Scroll struct {
 	// State
 	scrollId  string
 	scrollmux sync.Mutex
-	scrollIds []string
+	scrollIds map[string]struct{}
 }
 
 //func NewElastic5Scroll(ips []string, index string, scrolltimeout string, pagesize int64) *Elastic5Scroll {
@@ -48,11 +46,14 @@ func NewElastic5Scroll(ss ScrollSettings) *Elastic5Scroll {
 	c.SetPort(ss.Port)
 
 	return &Elastic5Scroll{
-		ss:   ss,
-		conn: c,
+		ss:        ss,
+		conn:      c,
+		scrollIds: map[string]struct{}{},
 	}
 }
 
+// Open queries Elasticsearch to create a scroll opeartion and returns the documents
+// if successful. Parses the SearchResults and stores the scroll identifier.
 func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*Doc, error) {
 	args := map[string]interface{}{"scroll": e.ss.Timeout}
 	qb, err := json.Marshal(query)
@@ -69,11 +70,10 @@ func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*Doc, error) {
 	return resultDocs(sr), nil
 }
 
-func (e *Elastic5Scroll) Scroll() ([]*Doc, error) {
+// Scroll over the next range of documents from the identifier parameter
+func (e *Elastic5Scroll) Scroll(id string) ([]*Doc, error) {
 	args := map[string]interface{}{"scroll": e.ss.Timeout}
-	e.scrollIds = append(e.scrollIds, e.scrollId)
-
-	sr, err := e.conn.Scroll(args, e.scrollId)
+	sr, err := e.conn.Scroll(args, id)
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +85,14 @@ func (e *Elastic5Scroll) Scroll() ([]*Doc, error) {
 // Cleanup executes deletion of all the scroll IDs created by this runtime.
 // Scrolls consume cluster memory and should always be culled after usage.
 func (e Elastic5Scroll) Cleanup() ([]byte, error) {
-	query := map[string]interface{}{
-		"scroll_id": e.scrollIds,
+	idlist := make([]string, 0)
+	for k, _ := range e.scrollIds {
+		idlist = append(idlist, k)
 	}
+	query := map[string]interface{}{
+		"scroll_id": idlist,
+	}
+	fmt.Printf("scrolls: %v\n", idlist)
 	url := "/_search/scroll"
 	body, err := e.conn.DoCommand("DELETE", url, nil, query)
 	return body, err
@@ -99,7 +104,9 @@ func (e Elastic5Scroll) ScrollID() string {
 }
 
 func (e *Elastic5Scroll) setScrollID(id string) {
+	// lock under mutex because maps and sensitive state is important.
 	e.scrollmux.Lock()
+	e.scrollIds[id] = struct{}{}
 	e.scrollId = id
 	e.scrollmux.Unlock()
 }
