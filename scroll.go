@@ -13,7 +13,6 @@ type Scroller interface {
 	// Open the scroll or configure list of files to read
 	Open(
 		map[string]interface{}, // Data mapping[query, filenames]
-		int64, // pagesize(ignored by file reader)
 	) ([]*Doc, error) // CTF: Stdin?
 
 	Scroll(
@@ -21,52 +20,47 @@ type Scroller interface {
 	) ([]*Doc, error)
 }
 
+type ScrollSettings struct {
+	Hosts    []string
+	Port     string
+	Index    string
+	Pagesize int64
+	Timeout  string
+}
+
 type Elastic5Scroll struct {
 	// Configuration
-	index         string
-	scrolltimeout string
-	scrollId      string
-	scrollmux     sync.Mutex
-	pageSize      int64
+	ss ScrollSettings
 
-	// Elasticsearch client? || Raw HTTP reqs?
+	// Client
 	conn *elastigo.Conn
 
 	// State
+	scrollId  string
+	scrollmux sync.Mutex
 	scrollIds []string
 }
 
-type ElasticConnection struct {
-	hosts []string
-	port  string
-}
-
-func NewElastic5Scroll(ips []string, index string, scrolltimeout string, pagesize int64) *Elastic5Scroll {
+//func NewElastic5Scroll(ips []string, index string, scrolltimeout string, pagesize int64) *Elastic5Scroll {
+func NewElastic5Scroll(ss ScrollSettings) *Elastic5Scroll {
 	c := elastigo.NewConn()
-	c.SetHosts(ips)
-	c.SetPort("9201")
+	c.SetHosts(ss.Hosts)
+	c.SetPort(ss.Port)
 
 	return &Elastic5Scroll{
-		scrolltimeout: scrolltimeout,
-		pageSize:      pagesize,
-		conn:          c,
+		ss:   ss,
+		conn: c,
 	}
-
-}
-
-type scrollArgs struct {
-	Size int64    `json:"size"`
-	Sort []string `json:"sort"`
 }
 
 func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*Doc, error) {
-	args := map[string]interface{}{"scroll": e.scrolltimeout}
+	args := map[string]interface{}{"scroll": e.ss.Timeout}
 	qb, err := json.Marshal(query)
 	if err != nil {
 		return nil, err
 	}
 
-	sr, err := e.conn.Search(e.index, "", args, string(qb))
+	sr, err := e.conn.Search(e.ss.Index, "", args, string(qb))
 	if err != nil {
 		return nil, err
 	}
@@ -76,18 +70,30 @@ func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*Doc, error) {
 }
 
 func (e *Elastic5Scroll) Scroll() ([]*Doc, error) {
-	args := make(map[string]interface{})
-	args["scroll"] = e.scrolltimeout
+	args := map[string]interface{}{"scroll": e.ss.Timeout}
 	e.scrollIds = append(e.scrollIds, e.scrollId)
 
 	sr, err := e.conn.Scroll(args, e.scrollId)
 	if err != nil {
 		return nil, err
 	}
+
 	e.setScrollID(sr.ScrollId)
 	return resultDocs(sr), nil
 }
 
+// Cleanup executes deletion of all the scroll IDs created by this runtime.
+// Scrolls consume cluster memory and should always be culled after usage.
+func (e Elastic5Scroll) Cleanup() ([]byte, error) {
+	query := map[string]interface{}{
+		"scroll_id": e.scrollIds,
+	}
+	url := "/_search/scroll"
+	body, err := e.conn.DoCommand("DELETE", url, nil, query)
+	return body, err
+}
+
+// ScrollID returns the current scroll idenitifier string
 func (e Elastic5Scroll) ScrollID() string {
 	return e.scrollId
 }
