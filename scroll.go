@@ -1,6 +1,7 @@
 package eskit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -98,6 +99,31 @@ func (e Elastic5Scroll) Cleanup() ([]byte, error) {
 	return body, err
 }
 
+func PumpElastiScroll(ctx context.Context, es *Elastic5Scroll) (chan Doc, chan error) {
+	pipe := make(chan Doc)
+	errchan := make(chan error)
+	doccnt := 0
+
+	go func() {
+		for {
+			docs, err := es.Scroll(es.ScrollID())
+			if err != nil {
+				errchan <- err
+			}
+			for _, d := range docs {
+				pipe <- *d
+				doccnt++
+			}
+			// if docs empty close and exit
+			if docs == nil {
+				close(pipe)
+				return
+			}
+		}
+	}()
+	return pipe, errchan
+}
+
 // ScrollID returns the current scroll idenitifier string
 func (e Elastic5Scroll) ScrollID() string {
 	return e.scrollId
@@ -123,6 +149,9 @@ func resultDocs(sr elastigo.SearchResult) []*Doc {
 			Source: *h.Source,
 		}
 		docs = append(docs, d)
+	}
+	if len(docs) < 1 {
+		return nil
 	}
 	return docs
 }
