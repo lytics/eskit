@@ -9,14 +9,16 @@ import (
 	elastigo "github.com/mattbaird/elastigo/lib"
 )
 
-var _ Scroller = (*Elastic5Scroll)(nil)
+var _ DocScroller = (*Elastic5Scroll)(nil)
 
-type Scroller interface {
-	// Open the Scroller to initialize any necessary state
-	Open(map[string]interface{}) ([]*Doc, error) // CTF: Stdin?
+type ScrollHandler interface {
+	ElastigoScroller
+	DoCommand(string, string, map[string]interface{}, interface{}) ([]byte, error)
+}
 
-	// Scroll processes the identified resource and returns documents
-	Scroll(string) ([]*Doc, error)
+type ElastigoScroller interface {
+	Search(string, string, map[string]interface{}, interface{}) (elastigo.SearchResult, error)
+	Scroll(args map[string]interface{}, scroll_id string) (elastigo.SearchResult, error)
 }
 
 type ScrollSettings struct {
@@ -27,12 +29,20 @@ type ScrollSettings struct {
 	Timeout  string
 }
 
+// Elastic5Scroll implements the DocScroller interface for Opening and Iterating
+// over an Elasticsearch Index's data set.
+//
+// Accepts a ScrollSettings struct which is used to create the client connections
+// and defines runtime variables.
+//
+// Fortunately the Scroll API didn't change between 2x and 5x so this functionality
+// works fine for both!
 type Elastic5Scroll struct {
 	// Configuration
 	ss ScrollSettings
 
 	// Client
-	conn *elastigo.Conn
+	conn ScrollHandler
 
 	// State
 	scrollId  string

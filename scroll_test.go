@@ -1,6 +1,7 @@
 package eskit
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -12,12 +13,17 @@ import (
 // TODO: improve reproducibility of testing for contributors
 
 var (
-	es5port = "9201"
-	es2port = "9200"
-	ports   = []string{es5port, es2port}
+	es5port          = "9201"
+	es2port          = "9200"
+	ports            = []string{es5port, es2port}
+	testintegrations = os.Getenv("TESTINT") // in testing environment `export TESTINT=1` to execute integration tests
 )
 
 func TestIntegrationScrollers(t *testing.T) {
+	if testintegrations == "" {
+		t.SkipNow()
+	}
+
 	for _, p := range ports {
 		t.Logf("testing scroll for %s", p)
 		testIntegrationEsScroller(t, p)
@@ -70,6 +76,10 @@ func testIntegrationEsScroller(t *testing.T, port string) {
 }
 
 func TestIntegrationElasticScrollerCleanups(t *testing.T) {
+	if testintegrations == "" {
+		t.SkipNow()
+	}
+
 	for _, p := range ports {
 		t.Logf("testing port %s", p)
 		testIntegrationEsScrollerCleanup(t, p)
