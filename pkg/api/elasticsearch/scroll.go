@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/lytics/eskit"
 	elastigo "github.com/mattbaird/elastigo/lib"
 )
 
-var _ DocScroller = (*Elastic5Scroll)(nil)
+var _ eskit.DocScroller = (*Elastic5Scroll)(nil)
 
 type ScrollHandler interface {
 	ElastigoScroller
@@ -65,7 +66,7 @@ func NewElastic5Scroll(ss ScrollSettings) *Elastic5Scroll {
 
 // Open queries Elasticsearch to create a scroll opeartion and returns the documents
 // if successful. Parses the SearchResults and stores the scroll identifier.
-func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*Doc, error) {
+func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*eskit.Doc, error) {
 	args := map[string]interface{}{"scroll": e.ss.Timeout}
 	qb, err := json.Marshal(query)
 	if err != nil {
@@ -82,7 +83,7 @@ func (e *Elastic5Scroll) Open(query map[string]interface{}) ([]*Doc, error) {
 }
 
 // Scroll over the next range of documents from the identifier parameter
-func (e *Elastic5Scroll) Scroll(id string) ([]*Doc, error) {
+func (e *Elastic5Scroll) Scroll(id string) ([]*eskit.Doc, error) {
 	args := map[string]interface{}{"scroll": e.ss.Timeout}
 	sr, err := e.conn.Scroll(args, id)
 	if err != nil {
@@ -109,8 +110,8 @@ func (e Elastic5Scroll) Cleanup() ([]byte, error) {
 	return body, err
 }
 
-func PumpElastiScroll(ctx context.Context, es *Elastic5Scroll) (chan Doc, chan error) {
-	pipe := make(chan Doc)
+func PumpElastiScroll(ctx context.Context, es *Elastic5Scroll) (chan eskit.Doc, chan error) {
+	pipe := make(chan eskit.Doc)
 	errchan := make(chan error)
 	doccnt := 0
 
@@ -147,11 +148,11 @@ func (e *Elastic5Scroll) setScrollID(id string) {
 	e.scrollmux.Unlock()
 }
 
-func resultDocs(sr elastigo.SearchResult) []*Doc {
-	docs := make([]*Doc, 0)
+func resultDocs(sr elastigo.SearchResult) []*eskit.Doc {
+	docs := make([]*eskit.Doc, 0)
 	for _, h := range sr.Hits.Hits {
-		d := &Doc{
-			Meta: Meta{
+		d := &eskit.Doc{
+			Meta: eskit.Meta{
 				ID:    h.Id,
 				Type:  h.Type,
 				Index: h.Index,

@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/lytics/eskit"
 )
 
 // Integration tests against Elasticsearch 2.3.x and 5.2.x
@@ -107,7 +109,7 @@ func testIntegrationEsScrollerCleanup(t *testing.T, port string) {
 		"sort": []string{"_doc"},
 	}
 
-	doclist := make([]*Doc, 0)
+	doclist := make([]*eskit.Doc, 0)
 
 	docs, err := e5s.Open(query)
 	if err != nil {
