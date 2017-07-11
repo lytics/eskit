@@ -3,7 +3,6 @@ package eskit
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 
 	"github.com/lytics/eskit"
@@ -104,7 +103,6 @@ func (e Elastic5Scroll) Cleanup() ([]byte, error) {
 	query := map[string]interface{}{
 		"scroll_id": idlist,
 	}
-	fmt.Printf("scrolls: %v\n", idlist)
 	url := "/_search/scroll"
 	body, err := e.conn.DoCommand("DELETE", url, nil, query)
 	return body, err
@@ -117,18 +115,24 @@ func PumpElastiScroll(ctx context.Context, es *Elastic5Scroll) (chan eskit.Doc, 
 
 	go func() {
 		for {
-			docs, err := es.Scroll(es.ScrollID())
-			if err != nil {
-				errchan <- err
-			}
-			for _, d := range docs {
-				pipe <- *d
-				doccnt++
-			}
-			// if docs empty close and exit
-			if docs == nil {
+			select {
+			case <-ctx.Done():
 				close(pipe)
 				return
+			default:
+				docs, err := es.Scroll(es.ScrollID())
+				if err != nil {
+					errchan <- err
+				}
+				for _, d := range docs {
+					pipe <- *d
+					doccnt++
+				}
+				// if docs empty close and exit
+				if docs == nil {
+					close(pipe)
+					return
+				}
 			}
 		}
 	}()
