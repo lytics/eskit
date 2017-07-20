@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"sync"
@@ -14,13 +15,17 @@ import (
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	doccnt := 0
 	log.SetOutput(os.Stderr)
+
+	index := flag.String("index", "none", "index to scan")
+	port := flag.String("port", "9201", "port to connect to ES on")
+	doccount := flag.Int("docs", 1000, "documents to read from ES before closing scroll, for all use -1")
+	flag.Parse()
 
 	settings := es.ScrollSettings{
 		Hosts:    []string{"127.0.0.1"},
-		Index:    "shakespeare",
-		Port:     "9201",
+		Index:    *index,
+		Port:     *port,
 		Timeout:  "1m",
 		Pagesize: int64(1000),
 	}
@@ -61,6 +66,7 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
+	docsread := 0
 	wg.Add(1)
 	// Read docs
 	go func() {
@@ -73,8 +79,11 @@ func main() {
 					wg.Done()
 					return
 				}
-				doccnt++
+				docsread++
 				fmt.Printf("%s\n", string(doc.Source))
+				if *doccount > 0 && docsread > *doccount {
+					cancel()
+				}
 			}
 		}
 		log.Debug("pump pipe exited")
@@ -96,5 +105,5 @@ func main() {
 	if err != nil {
 		log.WithError(err).Warnf("cleanup had error: %s", string(resp))
 	}
-	log.Infof("done! %d", doccnt)
+	log.Infof("done! %d", docsread)
 }
